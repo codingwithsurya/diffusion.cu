@@ -4,7 +4,7 @@ This project is a from-scratch implementation of diffusion model training in C++
 
 ### **My Motivation:**
 
-I was always  fascinated by diffusion models but found the math and implementation details challenging. Meanwhile, because of my interest in ML systems and infrastructure, it was also on my bucket list to learn CUDA + GPU Programming, so I started this project to force myself to understand both diffusion models and gpu programming/cuda from the ground up :) Karpathy's llm.c was also a huge inspiration behind this. Both approaches allow for direct programming of the GPU hardware, which can lead to faster and more efficient training processes.
+I was always  fascinated by diffusion models but found the math and implementation details challenging. Meanwhile, because of my interest in ML systems and infrastructure, it was also on my bucket list to learn CUDA + GPU Programming, so I started this project to force myself to understand both diffusion models and gpu programming/cuda from the ground up :) Karpathy's llm.c was also a huge inspiration behind this. This project is essentially a direct programming of the GPU hardware, which can lead to faster and more efficient training processes.
 
 ### **My Goal: Beating `torch.compile`**
 
