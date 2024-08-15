@@ -12,7 +12,7 @@ One of the primary objectives for this project is to develop a solution that can
 
 ### **Current Implementation:**
 
-This currently supports unconditional diffusion model training, and the end-to-end training loop is currently running at about 55% the speed of PyTorch with `torch.compile` when run on a single H100. Our main bottleneck is memory bandwidth saturation during shared memory loads for convolutions, but we can potentially optimize it by tweaking tiling, exploring register blocking, and mayb e even leveraging H100's Transformer Engine and FP8 precision.
+This currently supports unconditional diffusion model training, and the end-to-end training loop is currently running at about 55% the speed of PyTorch with `torch.compile` when run on a single H100. Our main bottleneck is memory bandwidth saturation during shared memory loads for convolutions, but i think we can bypass that by writing data directly to a global memory without non-atomic writes. Then, we'll use a reduction kernel to combine the data and finish the calculations.
 
 ### Learning Resources That Helped Me:
 
