@@ -63,5 +63,6 @@ Videos
 
 
 ### **Acknowledgments:**
-
-Huge thanks to Andrej Karpathy for his inspiring [llm.c](https://github.com/karpathy/llm.c) project and to the authors of the research paper [Diffusion Models Beat GANs on Image Synthesis](https://arxiv.org/abs/2105.05233). Also, credit to [clu0/unet.cu](https://github.com/clu0/unet.cu) and [siboehm.com/articles/22/CUDA-MMM](https://siboehm.com/articles/22/CUDA-MMM) for providing valuable code inspiration.
+- Original paper implementation by OpenAI: https://github.com/openai/guided-diffusion
+- https://github.com/karpathy/llm.c
+- https://github.com/clu0/unet.cu
