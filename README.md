@@ -12,7 +12,7 @@ One of the primary objectives for this project is to develop a solution that can
 
 ### **Current Implementation:**
 
-This currently supports unconditional diffusion model training, and the end-to-end training loop is currently running at about 55% the speed of PyTorch with `torch.compile` when run on a single H100. Further detailed benchmarks will have to be done to understand bottlenecks + adjust implementation for better performance. I do think we can incorporate low-precision training here, though.
+This currently supports unconditional diffusion model training, and the end-to-end training loop is currently running at about 55% the speed of PyTorch with `torch.compile` when run on a single H100. Further detailed benchmarks will have to be done to understand bottlenecks + adjust implementation for better performance. I do think we can incorporate low-precision training here, though (probably FP16 w/ loss scaling).
 
 | Platform                             | Time on H100 (ms) |
 |--------------------------------------|-------------------|
