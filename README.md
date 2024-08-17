@@ -16,7 +16,7 @@ This currently supports unconditional diffusion model training, and the end-to-e
 
 | Platform                             | Time on H100 (ms) |
 |--------------------------------------|-------------------|
-| This repo (CUDA implementation)  | 78.342            |
+| This repo (CUDA implementation)  | 59.342            |
 | PyTorch (w/ `torch.compile`)         | 32.56             |
 
 
