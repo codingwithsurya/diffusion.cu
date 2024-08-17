@@ -12,7 +12,13 @@ One of the primary objectives for this project is to develop a solution that can
 
 ### **Current Implementation:**
 
-This currently supports unconditional diffusion model training, and the end-to-end training loop is currently running at about 55% the speed of PyTorch with `torch.compile` when run on a single H100. Our main bottleneck is memory bandwidth saturation during shared memory loads for convolutions, but i think we can bypass that by writing data directly to a global memory without non-atomic writes. Then, we'll use a reduction kernel to combine the data and finish the calculations.
+This currently supports unconditional diffusion model training, and the end-to-end training loop is currently running at about 55% the speed of PyTorch with `torch.compile` when run on a single H100. Further detailed benchmarks will have to be done to understand bottlenecks + adjust implementation for better performance. I do think we can incorporate low-precision training here, though.
+
+| Platform                             | Time on H100 (ms) |
+|--------------------------------------|-------------------|
+| This repo (CUDA implementation)  | 78.342            |
+| PyTorch (w/ `torch.compile`)         | 32.56             |
+
 
 ### Learning Resources That Helped Me:
 
