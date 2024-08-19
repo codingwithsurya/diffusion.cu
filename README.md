@@ -2,7 +2,7 @@
 
 This project is a from-scratch implementation of diffusion model training in C++/CUDA. Inspired by Andrej Karpathy's [llm.c](https://github.com/karpathy/llm.c). The implementation is based on the U-Net architecture in the paper [Diffusion Models Beat GANs on Image Synthesis](https://arxiv.org/abs/2105.05233).
 
-# Train it 
+## Training
 
 You can train it on the images from the ImageNet 64x64 dataset via 
 
