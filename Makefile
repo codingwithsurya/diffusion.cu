@@ -20,7 +20,7 @@ ifeq ($(PROFILE),1)
 	NVCCFLAGS += $(PROFILE_FLAGS)
 endif
 
-train_unet: train_unet.cu
+train_diffusion: train_diffusion.cu
 	$(NVCC) $(CFLAGS) $(NVCCFLAGS) $^ -o $@
 
-clean: rm -f train_unet
+clean: rm -f train_diffusion

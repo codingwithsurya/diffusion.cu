@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 from tqdm import tqdm
-from train_unet import UNetModel, get_named_beta_schedule, GaussianDiffusion
+from train_diffusion import UNetModel, get_named_beta_schedule, GaussianDiffusion
 
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
 

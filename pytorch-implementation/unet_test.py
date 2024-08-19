@@ -9,7 +9,7 @@ import torch._inductor.config as config
 import sys
 import os
 sys.path.append(os.path.abspath('..'))
-from train_unet import GaussianDiffusion, get_named_beta_schedule
+from train_diffusion import GaussianDiffusion, get_named_beta_schedule
 from prepare_data import load_img_from_bin
 
 torch.manual_seed(0)
