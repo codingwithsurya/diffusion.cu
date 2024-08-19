@@ -2,22 +2,30 @@
 
 This project is a from-scratch implementation of diffusion model training in C++/CUDA. Inspired by Andrej Karpathy's [llm.c](https://github.com/karpathy/llm.c). The implementation is based on the U-Net architecture in the paper [Diffusion Models Beat GANs on Image Synthesis](https://arxiv.org/abs/2105.05233).
 
-### **My Motivation:**
+# Train it 
 
-I was always  fascinated by diffusion models but found the math and implementation details challenging. Meanwhile, because of my interest in ML systems and infrastructure, it was also on my bucket list to learn CUDA + GPU Programming, so I started this project to force myself to understand both diffusion models and gpu programming/cuda from the ground up :) Karpathy's llm.c was also a huge inspiration behind this. This project is essentially a direct programming of the GPU hardware, which can lead to faster and more efficient training processes.
+You can train it on the images from the ImageNet 64x64 dataset via 
 
-### **My Goal: Beating `torch.compile`**
-
-One of the primary objectives for this project is to develop a solution that can potentially surpass the performance of PyTorch's torch.compile feature. torch.compile leverages advanced optimization techniques such as just-in-time (JIT) graph compilation, operator fusion, and low-level kernel optimizations to enhance the execution efficiency of PyTorch models, particularly on NVIDIA GPUs. These optimizations significantly improve runtime performance by reducing overhead and maximizing hardware resource utilization. In fact, PyTorch runs heuristics directly on your hardware to squeeze out every bit of performance. This results in significantly faster execution, especially on NVIDIA GPUs. It's a tough challenge, but I'm excited to see how close I can get!
+`gunzip data/elephant_train.bin.gz 
+python train_diffusion.py --init_model_only True 
+make train_diffusion
+./train_diffusion`
 
 ### **Current Implementation:**
 
-This currently supports unconditional diffusion model training, and the end-to-end training loop is currently running at about 55% the speed of PyTorch with `torch.compile` when run on a single H100. Further detailed benchmarks will have to be done to understand bottlenecks + adjust implementation for better performance. I do think we can incorporate low-precision training here, though (probably FP16 w/ loss scaling).
+This currently supports unconditional diffusion model training, and the end-to-end training loop is currently running at about 42% the speed of PyTorch with `torch.compile` when run on a single H100. Further detailed benchmarks will have to be done to understand bottlenecks + adjust implementation for better performance. I do think we can incorporate mixed-precision training here, though (FP16 w/ loss scaling).
 
 | Platform                             | Time on H100 (ms) |
 |--------------------------------------|-------------------|
-| This repo (CUDA implementation)  | 59.342            |
-| PyTorch (w/ `torch.compile`)         | 32.56             |
+| This repo (CUDA implementation)  | 56.98            |
+| PyTorch (w/ `torch.compile`)         | 23.68             |
+
+
+### **My Motivation:**
+
+I've always been intrigued by diffusion models but found the math and implementation challenging. My interest in ML systems and GPU programming led me to start this project. Inspired by Karpathy's llm.c, I aimed to directly program the GPU for faster, more efficient training.
+
+My goal is to develop a solution that could potentially surpass PyTorch's torch.compile, which optimizes model execution on NVIDIA GPUs using advanced techniques like JIT compilation, operator fusion, and kernel optimizations. These optimizations significantly improve runtime performance by reducing overhead and maximizing hardware resource utilization.
 
 
 ### Learning Resources That Helped Me:
@@ -70,5 +78,5 @@ Videos
 
 ### **Acknowledgments:**
 - Original paper implementation by OpenAI: https://github.com/openai/guided-diffusion
-- https://github.com/karpathy/llm.c
-- https://github.com/clu0/unet.cu
+- Got most of complex cuda implementations (attention, groupnorm, etc.) from here: https://github.com/karpathy/llm.c
+- For custom unet implementation: https://github.com/clu0/unet.cu
