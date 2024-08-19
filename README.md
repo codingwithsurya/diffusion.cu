@@ -6,10 +6,12 @@ This project is a from-scratch implementation of diffusion model training in C++
 
 You can train it on the images from the ImageNet 64x64 dataset via 
 
-`gunzip data/elephant_train.bin.gz 
+```
+gunzip data/elephant_train.bin.gz 
 python train_diffusion.py --init_model_only True 
 make train_diffusion
 ./train_diffusion`
+```
 
 ### **Current Implementation:**
 
