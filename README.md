@@ -1,6 +1,6 @@
 # diffusion.cu
 
-This project is a from-scratch implementation of diffusion model training in C++/CUDA. Inspired by Andrej Karpathy's [llm.c](https://github.com/karpathy/llm.c) and Chen Lu's [unet.cu](https://github.com/clu0/unet.cu). The implementation is based on the U-Net architecture in the paper [Diffusion Models Beat GANs on Image Synthesis](https://arxiv.org/abs/2105.05233).
+This project is a from-scratch implementation of diffusion model training in C++/CUDA. This project is currently in-progress. Inspired by Andrej Karpathy's [llm.c](https://github.com/karpathy/llm.c) and Chen Lu's [unet.cu](https://github.com/clu0/unet.cu). The implementation is based on the architecture in the paper [Diffusion Models Beat GANs on Image Synthesis](https://arxiv.org/abs/2105.05233).
 
 ## Training
 
@@ -26,6 +26,7 @@ This currently supports unconditional diffusion model training, and the end-to-e
 In Progress:
 - support for distributed training via MPI
 - support for mixed precision training
+- support for DiT as another architecture we can add, because we can re-use the same components of llm.c
 
 ### **My Motivation:**
 
