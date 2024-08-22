@@ -11,6 +11,7 @@
 #include <string.h>
 #include <sys/stat.h> // For mkdir
 #include <sys/types.h> // For mode_t
+#include <mpi.h>
 
 namespace cg = cooperative_groups;
 
@@ -4939,6 +4940,19 @@ void create_directory(const char *dir) {
 }
 
 int main(int argc, char **argv) {
+    MPI_INIT(&argc, &argv);
+
+    int world_size, rank;
+
+    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+
+    // allocate gpu resources
+    int num_gpus;
+    cudaGetDeviceCount(&num_gpus);
+    int gpu_id = rank % num_gpus;
+    cudaSetDevice(gpu_id);
+
     // Default values
     const char *model_weights_file = "unet_init.bin";
     const char *data_file = "data/elephant_train.bin";
@@ -4954,17 +4968,21 @@ int main(int argc, char **argv) {
             log_filename = argv[++i];
         }
     }
-    printf("loading model weights from %s\n", model_weights_file);
-    printf("loading data from %s\n", data_file);
 
-    // set up the device
-    int deviceIdx = 0;
-    cudaCheck(cudaSetDevice(deviceIdx));
+    if (rank == 0) {
+        printf("loading model weights from %s\n", model_weights_file);
+        printf("loading data from %s\n", data_file);
+    }
+
+    // Set up the device
     cudaDeviceProp deviceProp;
-    cudaGetDeviceProperties(&deviceProp, deviceIdx);
-    printf("Device %d: %s\n", deviceIdx, deviceProp.name);
-    printf("device registers per block: %d\n", deviceProp.regsPerBlock);
-    printf("shared mem per block: %ld\n", deviceProp.sharedMemPerBlock);
+    cudaGetDeviceProperties(&deviceProp, gpu_id);
+    if (rank == 0)
+    {
+        printf("Device %d: %s\n", gpu_id, deviceProp.name);
+        printf("device registers per block: %d\n", deviceProp.regsPerBlock);
+        printf("shared mem per block: %ld\n", deviceProp.sharedMemPerBlock);
+    }
 
     // setup cublas
     cublasHandle_t cublas_handle;
@@ -4984,6 +5002,33 @@ int main(int argc, char **argv) {
     DataLoader loader;
     dataloader_init(&loader, data_file, B);
 
+    // Distribute data across processes
+    int total_samples = loader.total_samples;
+    int samples_per_process = total_samples / world_size;
+    int start_idx = rank * samples_per_process;
+    int end_idx = (rank + 1) * samples_per_process;
+
+    // Adjust loader to only load this process's portion of the data
+    loader.start_idx = start_idx;
+    loader.end_idx = end_idx;
+
+    // Initialize model parameters
+    float *model_parameters;
+    size_t param_size = unet.grads.total_size * sizeof(float);
+    cudaMalloc(&model_parameters, param_size);
+
+    if (rank == 0)
+    {
+        // Initialize parameters on root process
+        cudaMemcpy(model_parameters, unet.grads.mem_ptr, param_size, cudaMemcpyDeviceToDevice);
+    }
+
+    // Broadcast parameters to all processes
+    MPI_Bcast(model_parameters, unet.grads.total_size, MPI_FLOAT, 0, MPI_COMM_WORLD);
+
+    // Copy broadcasted parameters back to unet
+    cudaMemcpy(unet.grads.mem_ptr, model_parameters, param_size, cudaMemcpyDeviceToDevice);
+
     // allocate memory for target separately, since unet can still be run without targets for inference
     cudaCheck(cudaMalloc(&(unet.target), B * C_out * H * W * sizeof(float)));
     float *d_timesteps_buf;
@@ -4997,76 +5042,114 @@ int main(int argc, char **argv) {
     //int n_log_iter = 5;
     //int n_save_iter = 50;
 
-    // wipe existing logs
-    FILE* log_file = fopen(log_filename, "w");
-    fprintf(log_file, "training unet,\nmodel file %s,\ndata filename %s\n", model_weights_file, data_file);
-    fprintf(log_file, "starting training for %d iterations\n", n_iters);
-    fcloseCheck(log_file);
+    // Wipe existing logs
+    if (rank == 0)
+    {
+        FILE *log_file = fopen(log_filename, "w");
+        fprintf(log_file, "training unet,\nmodel file %s,\ndata filename %s\n", model_weights_file, data_file);
+        fprintf(log_file, "starting training for %d iterations\n", n_iters);
+        fclose(log_file);
+    }
 
     const char *model_save_dir = "./models/";
-    create_directory(model_save_dir);
+    if (rank == 0)
+    {
+        create_directory(model_save_dir);
+    }
 
     LossCounter loss_counter;
     clear_loss_counter(&loss_counter);
 
-    printf("Training for %d iterations\n", n_iters);
+    if (rank == 0)
+    {
+        printf("Training for %d iterations\n", n_iters);
+    }
+
     float time_elapsed = 0.0;
     cudaEvent_t start, end;
-    cudaCheck(cudaEventCreate(&start));
-    cudaCheck(cudaEventCreate(&end));
-    cudaCheck(cudaEventRecord(start));
-    cudaCheck(cudaEventSynchronize(start));
-    for (int iter = 1; iter <= n_iters; iter++) {
+    cudaEventCreate(&start);
+    cudaEventCreate(&end);
+    cudaEventRecord(start);
+    cudaEventSynchronize(start);
+
+    for (int iter = 1; iter <= n_iters; iter++)
+    {
         unet_zero_grad(&unet);
         dataloader_next_batch(&loader);
-        // copy loaded data into input
-        cudaCheck(cudaMemcpy(unet.input, loader.input, B * C_in * H * W * sizeof(float), cudaMemcpyHostToDevice));
 
-        // sample timesteps and get timestep embeddings
+        // Copy loaded data into input (only this process's portion)
+        cudaMemcpy(unet.input, loader.input, B * C_in * H * W * sizeof(float), cudaMemcpyHostToDevice);
+
+        // Sample timesteps and get timestep embeddings
         sample_timesteps(&diffusion, d_timesteps_buf);
         get_timestep_embeddings(&unet.time_emb_state, d_timesteps_buf, unet.timestep_emb);
-        
-        // target will be injected random noise
+
+        // Target will be injected random noise
         diffusion_draw_normal(&diffusion, unet.target);
 
-        // push input through forward diffusion process by t to get x_t
+        // Push input through forward diffusion process by t to get x_t
         diffusion_forward_by_t(&diffusion, unet.input, d_timesteps_buf, unet.target);
 
+        // Forward pass
         unet_forward(cublas_handle, &unet);
+
+        // Backward pass
         unet_backward(cublas_handle, &unet);
+
+        // Aggregate gradients across processes
+        float *local_grads = unet.grads.mem_ptr;
+        float *global_grads;
+        cudaMalloc(&global_grads, unet.grads.total_size * sizeof(float));
+        MPI_Allreduce(local_grads, global_grads, unet.grads.total_size, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+
+        // Copy global gradients back to unet.grads
+        cudaMemcpy(unet.grads.mem_ptr, global_grads, unet.grads.total_size * sizeof(float), cudaMemcpyDeviceToDevice);
+        cudaFree(global_grads);
+
         unet_update(&unet, 0.0001f, 0.9f, 0.999f, 1e-8f, 0.0f, iter);
 
         update_loss_counter(&loss_counter, unet.mean_loss);
 
-        cudaCheck(cudaEventRecord(end));
-        cudaCheck(cudaEventSynchronize(end));
-        cudaCheck(cudaEventElapsedTime(&time_elapsed, start, end));
+        cudaEventRecord(end);
+        cudaEventSynchronize(end);
+        cudaEventElapsedTime(&time_elapsed, start, end);
 
-        if (iter % n_log_iter == 0) {
-            printf("step %4d/%d | loss %7.6f | mean loss %7.6f | cur time %.4f s\n", iter, n_iters, unet.mean_loss, loss_counter.mean_loss, time_elapsed / 1000);
+        if (iter % n_log_iter == 0 && rank == 0)
+        {
+            printf("step %4d/%d | loss %7.6f | mean loss %7.6f | cur time %.4f s\n",
+                   iter, n_iters, unet.mean_loss, loss_counter.mean_loss, time_elapsed / 1000);
             FILE *log_file = fopen(log_filename, "a");
-            fprintf(log_file, "step %4d/%d | loss %7.6f | mean loss %7.6f | cur time %.4f s\n", iter, n_iters, unet.mean_loss, loss_counter.mean_loss, time_elapsed / 1000);
+            fprintf(log_file, "step %4d/%d | loss %7.6f | mean loss %7.6f | cur time %.4f s\n",
+                    iter, n_iters, unet.mean_loss, loss_counter.mean_loss, time_elapsed / 1000);
             fclose(log_file);
             clear_loss_counter(&loss_counter);
         }
 
-        if (iter % n_save_iter == 0) {
+        if (iter % n_save_iter == 0 && rank == 0)
+        {
             char save_filename[256];
             sprintf(save_filename, "./models/model_%d.bin", iter);
             save_unet_states(&unet, &diffusion, save_filename);
         }
     }
-    printf("average time per iteration: %f ms\n", time_elapsed / n_iters);
+
+    if (rank == 0)
+    {
+        printf("average time per iteration: %f ms\n", time_elapsed / n_iters);
+    }
 
     cudaCheck(cudaEventDestroy(start));
     cudaCheck(cudaEventDestroy(end));
     cublasCheck(cublasDestroy(cublas_handle));
     cudaCheck(cudaFree(d_timesteps_buf));
     cudaCheck(cudaFree(unet.target));
+    cudaCheck(cudaFree(model_parameters));
 
     dataloader_free(&loader);
     diffusion_free(&diffusion);
     free_unet(&unet);
 
+    MPI_Finalize();
     printf("success\n");
+    return 0;
 }
