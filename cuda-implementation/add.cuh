@@ -1,13 +1,16 @@
 #pragma once
 
 void add_forward(
-    const float* a, const float* b,
-    float* out,
-    int N, int block_size
+    const void* a, const void* b,
+    void* out,
+    int N, int block_size,
+    bool use_fp16,
+    float loss_scale
 );
 
-
 void add_inplace_forward(
-    const float* a, float* b,
-    int N, int block_size
+    const void* a, void* b,
+    int N, int block_size,
+    bool use_fp16,
+    float loss_scale
 );
