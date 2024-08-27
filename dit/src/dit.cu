@@ -172,7 +172,48 @@ void dit_backward(
     // --- Classifier-Free Guidance (CFG) ---
     if (use_cfg)
     {
-        // ... (Similar to forward pass, split and apply CFG for gradients)
+        assert(cfg_scale >= 1.0f);
+
+        int half_B = B / 2;
+
+        // Split the output gradient into two halves for conditional and unconditional paths
+        float *dout_cond = dout;
+        float *dout_uncond = dout + half_B * dit->final_layer.N * dit->final_layer.out_channels * patch_size * patch_size;
+
+        // Apply CFG scaling to the output gradients
+        for (int i = 0; i < half_B * dit->final_layer.N * dit->final_layer.out_channels * patch_size * patch_size; i++)
+        {
+            dout_cond[i] *= cfg_scale;
+            dout_uncond[i] *= (1 - cfg_scale);
+        }
+
+        // Split the input and conditioning into two halves for conditional and unconditional paths
+        float *x_cond = x;
+        float *x_uncond = x + half_B * C * H * W;
+        float *t_cond = t;
+        float *t_uncond = t + half_B;
+
+        // Backward pass for both conditional and unconditional paths
+        dit_backward(dit, dout_cond, x_cond, t_cond, y, cublas_handle, 1.0f, false, t_out);             // Conditional path
+        dit_backward(dit, dout_uncond, x_uncond, t_uncond, nullptr, cublas_handle, 1.0f, false, t_out); // Unconditional path
+
+        // Combine gradients for input image
+        for (int i = 0; i < half_B * C * H * W; i++)
+        {
+            dit->dx[i] = cfg_scale * dit->dx[i] + (1 - cfg_scale) * dit->dx[i + half_B * C * H * W];
+        }
+
+        // Combine gradients for timestep embeddings
+        for (int i = 0; i < half_B * hidden_size; i++)
+        {
+            dit->t_embedder.out[i] = cfg_scale * dit->t_embedder.out[i] + (1 - cfg_scale) * dit->t_embedder.out[i + half_B * hidden_size];
+        }
+
+        // Combine gradients for label embeddings
+        for (int i = 0; i < half_B * hidden_size; i++)
+        {
+            dit->l_embedder.out[i] = cfg_scale * dit->l_embedder.out[i] + (1 - cfg_scale) * dit->l_embedder.out[i + half_B * hidden_size];
+        }
     }
 
     // --- Backward through Input Processing ---
