@@ -1,6 +1,6 @@
 # diffusion.cu
 
-This project is a from-scratch implementation of diffusion model training in C++/CUDA. This project is currently in-progress, and supports the classic UNet architecture, based on the architecture in the paper [Diffusion Models Beat GANs on Image Synthesis](https://arxiv.org/abs/2105.05233), and the transformer architecture (DiT), based on [Scalable Diffusion Models with Transformers](https://arxiv.org/abs/2212.09748). Inspired by Andrej Karpathy's [llm.c](https://github.com/karpathy/llm.c) and Chen Lu's [unet.cu](https://github.com/clu0/unet.cu).
+This project is a from-scratch implementation of diffusion model training in raw C++/CUDA. It is currently in progress, with support for both the classic UNet architecture, based on [Diffusion Models Beat GANs on Image Synthesis](https://arxiv.org/abs/2105.05233), and the transformer architecture (DiT), as detailed in [Scalable Diffusion Models with Transformers](https://arxiv.org/abs/2212.09748). My work is focused on developing the DiT model from scratch, while also enhancing Chen Lu's [unet.cu](https://github.com/clu0/unet.cu) by adding distributed training support and optimizations such as mixed precision training. The project is inspired by Andrej Karpathy's [llm.c](https://github.com/karpathy/llm.c).
 
 ## Training
 
@@ -24,7 +24,7 @@ This currently supports unconditional diffusion model training, and the end-to-e
 
 
 In Progress:
-- support for distributed training via MPI in Unet
+- support for distributed training via MPI in UNet
 - support for mixed precision training in UNet
 - support for DiT full fledged training
 
