@@ -5,6 +5,15 @@
 #include "common.h"
 #include "linear.cuh"
 
+// For tensor cores / WMMA API
+#include <mma.h>
+using namespace nvcuda::wmma;
+
+// Define WMMA tile sizes
+#define WMMA_M 16
+#define WMMA_N 16
+#define WMMA_K 16
+
 // ----------------------------------------------------------------------------
 // GPU kernels
 
@@ -157,6 +166,137 @@ void matmul_backward1(cublasHandle_t cublas_handle,
 
 // ----------------------------------------------------------------------------
 
+// New optimized fused kernel for forward pass using WMMA (Tensor Cores), kernel fusion, and persistent threadblocks.
+// This kernel computes the matrix multiplication and fuses bias addition into a single kernel.
+// It uses the WMMA API to leverage tensor cores for fast matrix multiplication.
+__global__ void matmul_forward_fused_kernel(float *out, const float *inp, const float *weight, const float *bias, int M, int K, int N)
+{
+    // M: number of rows in input (same as N from original, i.e., B*T)
+    // K: common dimension (C)
+    // N: number of columns in output (OC)
+    
+    // Calculate number of WMMA tiles in M and N dimensions.
+    int tile_M = (M + WMMA_M - 1) / WMMA_M;
+    int tile_N = (N + WMMA_N - 1) / WMMA_N;
+    int total_tiles = tile_M * tile_N;
+    
+    // Calculate warp and thread indices for persistent threadblocks.
+    int warpId = threadIdx.x / 32;       // Warp index within block
+    int laneId = threadIdx.x % 32;         // Lane index within warp
+    int num_warps_per_block = blockDim.x / 32;
+    int global_warp_id = blockIdx.x * num_warps_per_block + warpId;
+    int total_warps = gridDim.x * num_warps_per_block;
+    
+    // Each warp processes multiple tiles using a grid-stride loop (persistent threadblocks).
+    for (int tile_idx = global_warp_id; tile_idx < total_tiles; tile_idx += total_warps)
+    {
+         // Determine the tile's row and column indices.
+         int tile_row = tile_idx / tile_N;
+         int tile_col = tile_idx % tile_N;
+         
+         // Declare an accumulator fragment for the output tile.
+         wmma::fragment<wmma::accumulator, WMMA_M, WMMA_N, WMMA_K, float> c_frag;
+         wmma::fill_fragment(c_frag, 0.0f);
+         
+         // Loop over tiles in the K dimension.
+         for (int k_tile = 0; k_tile < (K + WMMA_K - 1) / WMMA_K; k_tile++)
+         {
+              // Declare fragments for the input tile (matrix A) and weight tile (matrix B).
+              wmma::fragment<wmma::matrix_a, WMMA_M, WMMA_N, WMMA_K, half, wmma::row_major> a_frag;
+              wmma::fragment<wmma::matrix_b, WMMA_M, WMMA_N, WMMA_K, half, wmma::col_major> b_frag;
+              
+              // Temporary storage for a tile from the input matrix (inp).
+              half a_tile[WMMA_M * WMMA_K];
+              #pragma unroll
+              for (int i = 0; i < WMMA_M; i++) {
+                  int row = tile_row * WMMA_M + i;
+                  for (int j = 0; j < WMMA_K; j++) {
+                      int col = k_tile * WMMA_K + j;
+                      float val = 0.0f;
+                      if (row < M && col < K) {
+                          val = inp[row * K + col];
+                      }
+                      a_tile[i * WMMA_K + j] = __float2half(val);
+                  }
+              }
+              // Load the input tile into WMMA fragment.
+              wmma::load_matrix_sync(a_frag, a_tile, WMMA_K);
+              
+              // Temporary storage for a tile from the weight matrix.
+              // Note: weight is originally of shape (OC, C) in row-major.
+              // We interpret it as the transposed weight (i.e., shape (C, OC)) for the multiplication.
+              // Thus, we load weight as if it is in col_major order with leading dimension N.
+              half b_tile[WMMA_K * WMMA_N];
+              #pragma unroll
+              for (int i = 0; i < WMMA_K; i++) {
+                  int row = k_tile * WMMA_K + i;
+                  for (int j = 0; j < WMMA_N; j++) {
+                      int col = tile_col * WMMA_N + j;
+                      float val = 0.0f;
+                      if (row < K && col < N) {
+                          val = weight[row * N + col];
+                      }
+                      b_tile[i * WMMA_N + j] = __float2half(val);
+                  }
+              }
+              // Load the weight tile into WMMA fragment.
+              wmma::load_matrix_sync(b_frag, b_tile, WMMA_K);
+              
+              // Perform the matrix multiplication using tensor cores.
+              wmma::mma_sync(c_frag, a_frag, b_frag, c_frag);
+         }
+         
+         // Temporary storage to hold the computed output tile.
+         float c_tile[WMMA_M * WMMA_N];
+         wmma::store_matrix_sync(c_tile, c_frag, WMMA_N, wmma::mem_row_major);
+         
+         // Fuse bias addition: add bias to each column of the output tile.
+         // Distribute the work among threads in the warp.
+         for (int idx = laneId; idx < WMMA_M * WMMA_N; idx += 32) {
+             int i = idx / WMMA_N;
+             int j = idx % WMMA_N;
+             int global_row = tile_row * WMMA_M + i;
+             int global_col = tile_col * WMMA_N + j;
+             if (global_row < M && global_col < N) {
+                 float bias_val = (bias != nullptr) ? bias[global_col] : 0.0f;
+                 out[global_row * N + global_col] = c_tile[i * WMMA_N + j] + bias_val;
+             }
+         }
+    }
+}
+
+// New function: Fused forward pass using the optimized kernel above.
+// This function replaces the cuBLAS call with a custom kernel that fuses matmul and bias addition,
+// utilizes persistent threadblocks, and leverages tensor cores via WMMA.
+void matmul_forward_fused(
+    float *out,                   // Output tensor
+    const float *inp,             // Input tensor
+    const float *weight,          // Weight matrix
+    const float *bias,            // Bias vector (can be NULL)
+    int N, int C, int OC,         // Dimensions: Batch size, Input channels, Output channels
+    const int block_size          // Block size for CUDA kernel (used for persistent threadblocks)
+)
+{
+    // For the fused kernel, we interpret:
+    // M = N (from original: inp is (N, C)) and N (for output) = OC.
+    // C remains as common dimension.
+    int M = N;     // number of rows in input
+    int K = C;     // common dimension
+    int N_out = OC; // number of columns in output
+
+    // Choose grid and block dimensions.
+    // Here, we use a fixed grid size for persistent threadblocks.
+    int grid_size = 128; // number of thread blocks (can be tuned)
+    // block_size is provided by the caller and should be a multiple of 32 (warp size)
+    dim3 block_dim(block_size);
+
+    // Launch the fused kernel.
+    matmul_forward_fused_kernel<<<grid_size, block_dim>>>(out, inp, weight, bias, M, K, N_out);
+    cudaCheck(cudaGetLastError());
+}
+
+// ----------------------------------------------------------------------------
+
 void linear_set_param_ptrs(
     LinearParams *params,
     float *params_memory,
@@ -177,7 +317,8 @@ int main(int argc, char **argv)
     // setup cublas
     cublasHandle_t cublas_handle;
     cublasCheck(cublasCreate(&cublas_handle));
-    cublasCheck(cublasSetMathMode(cublas_handle, CUBLAS_DEFAULT_MATH));
+    // Optionally enable tensor cores in cuBLAS (if using cuBLAS kernels)
+    cublasCheck(cublasSetMathMode(cublas_handle, CUBLAS_TENSOR_OP_MATH));
 
     // create host memory
     float *inp = (float *)malloc(N * C * sizeof(float));
@@ -223,7 +364,7 @@ int main(int argc, char **argv)
 
     int block_sizes[] = {128, 256, 512, 1024};
 
-    printf("Checking forward pass\n");
+    printf("Checking forward pass (cuBLAS version)\n");
     for (int j = 0; j < sizeof(block_sizes) / sizeof(int); j++)
     {
         int block_size = block_sizes[j];
@@ -232,7 +373,19 @@ int main(int argc, char **argv)
         validate_result(d_out, out, "out", N * OC);
     }
 
-    printf("Forward pass successful\n");
+    printf("Forward pass (cuBLAS) successful\n");
+
+    printf("Checking forward pass (Fused WMMA version)\n");
+    for (int j = 0; j < sizeof(block_sizes) / sizeof(int); j++)
+    {
+        int block_size = block_sizes[j];
+        printf("\nBlock size: %d\n", block_size);
+        // Use the fused kernel for forward pass
+        matmul_forward_fused(d_out, d_inp, d_weight, d_bias, N, C, OC, block_size);
+        validate_result(d_out, out, "out (fused)", N * OC);
+    }
+
+    printf("Fused forward pass successful\n");
 
     printf("Checking backward pass\n");
     for (int j = 0; j < sizeof(block_sizes) / sizeof(int); j++)
@@ -250,7 +403,7 @@ int main(int argc, char **argv)
     printf("Backward pass successful\n");
 
     printf("All results match. Starting benchmarks.\n\n");
-    printf("Forward pass benchmarks:\n");
+    printf("Forward pass benchmarks (cuBLAS version):\n");
     for (int j = 0; j < sizeof(block_sizes) / sizeof(int); j++)
     {
         int block_size = block_sizes[j];
@@ -258,6 +411,20 @@ int main(int argc, char **argv)
         int repeat_times = 100;
         float elapsed_time = benchmark_kernel(repeat_times, matmul_forward2,
                                               cublas_handle, d_out, d_inp, d_weight, d_bias,
+                                              N, C, OC, block_size);
+
+        float tflops = (float)N * C * OC * 2 / elapsed_time * 1e3f / 1e12f;
+        printf("block_size %4d | time %.4f ms | tflops %.2f\n", block_size, elapsed_time, tflops);
+    }
+
+    printf("\nForward pass benchmarks (Fused WMMA version):\n");
+    for (int j = 0; j < sizeof(block_sizes) / sizeof(int); j++)
+    {
+        int block_size = block_sizes[j];
+
+        int repeat_times = 100;
+        float elapsed_time = benchmark_kernel(repeat_times, matmul_forward_fused,
+                                              d_out, d_inp, d_weight, d_bias,
                                               N, C, OC, block_size);
 
         float tflops = (float)N * C * OC * 2 / elapsed_time * 1e3f / 1e12f;

@@ -48,3 +48,15 @@ void linear_set_param_ptrs(
 
 // Function to calculate the number of parameters in a linear layer
 inline size_t linear_count_params(int C, int OC);
+
+// --------------------------------------------------------------------------
+// New optimized forward pass for a linear layer using kernel fusion, persistent threadblocks,
+// and tensor cores (WMMA). This function fuses the matrix multiplication and bias addition.
+void matmul_forward_fused(
+    float *out,                   // Output tensor
+    const float *inp,             // Input tensor
+    const float *weight,          // Weight matrix
+    const float *bias,            // Bias vector (can be NULL)
+    int N, int C, int OC,         // Dimensions: Batch size, Input channels, Output channels
+    const int block_size          // Block size for CUDA kernel (used for persistent threadblocks)
+);
