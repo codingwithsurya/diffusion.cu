@@ -10,7 +10,6 @@ High-performance Diffusion Transformer (DiT) implementation from scratch using C
 - Memory coalescing for Q, K, V matrix operations
 
 ### Attention Kernel Performance Results
-I'll convert this into a clean markdown table format.
 
 | Metric | CUDA Implementation | PyTorch Reference | Improvement |
 |--------|-------------------|------------------|-------------|
