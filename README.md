@@ -16,6 +16,8 @@ High-performance Diffusion Transformer (DiT) implementation from scratch using C
 - Block-level parallelism for multi-head attention
 - Memory coalescing for Q, K, V matrix operations
 
+and more!
+
 ## Usage
 
 ```python
