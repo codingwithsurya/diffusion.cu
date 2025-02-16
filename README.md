@@ -1,13 +1,6 @@
 # diffusion.cu
 
-High-performance Diffusion Transformer (DiT) implementation from scratch using CUDA/C++. Features optimized CUDA kernels with:
-
-### MLP Block
-- Matrix multiplications using shared memory and warp-level tiling
-- Persistent threadblocks for efficient kernel reuse
-- Tensor Core acceleration via WMMA API
-- Kernel fusion for SiLU activation and bias addition
-- Mixed precision (FP16) computation
+High-performance Diffusion Transformer (DiT) implementation from scratch using CUDA/C++.
 
 ### Attention Block
 - Optimized scaled dot-product attention using shared memory tiling
@@ -16,7 +9,27 @@ High-performance Diffusion Transformer (DiT) implementation from scratch using C
 - Block-level parallelism for multi-head attention
 - Memory coalescing for Q, K, V matrix operations
 
-and more!
+### Attention Kernel Performance Results
+--------------------------------------------------
+Best Latency (over 5 trials):
+  CUDA Implementation:  0.058 ms
+  PyTorch Reference:    0.096 ms
+  Speedup:             1.66x
+  Performance Gain:    39.6%
+
+Throughput:
+  CUDA Implementation:  550.8k tokens/sec
+  PyTorch Reference:    332.6k tokens/sec
+  Throughput Ratio:    1.66x
+
+### MLP Block
+- Matrix multiplications using shared memory and warp-level tiling
+- Persistent threadblocks for efficient kernel reuse
+- Tensor Core acceleration via WMMA API
+- Kernel fusion for SiLU activation and bias addition
+- Mixed precision (FP16) computation
+
+and more optimized kernels for layernorm, adaLN, timestep embeddings, label embeddings, etc. :) 
 
 ## Usage
 
